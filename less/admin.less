@@ -28,3 +28,13 @@
 }
 
 .TagCovers-error { margin-top: 6px; color: var(--alert-error-color, #b91c1c); }
+
+// A logo is small and often transparent, so it needs a bounded box and a
+// ground to sit on — a white crest on the modal's white surface is invisible.
+.TagCovers-preview--logo {
+  max-width: 96px;
+  padding: 8px;
+  background: var(--control-bg, rgba(127, 127, 127, .12));
+
+  img { object-fit: contain; }
+}

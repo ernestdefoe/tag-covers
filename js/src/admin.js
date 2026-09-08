@@ -13,73 +13,90 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
     // file to. The field appears once the tag has been saved.
     if (!tag || !tag.exists) return;
 
-    items.add('cover', coverField(this, tag), 4);
+    items.add('cover', imageField(this, tag, 'cover'), 4);
+    items.add('logo', imageField(this, tag, 'logo'), 3);
   });
 });
 
-function coverField(modal, tag) {
-  modal.coverUrl ??= tag.attribute('coverUrl') || null;
-  modal.coverBusy ??= false;
-  modal.coverError ??= null;
+/**
+ * One field, both images.
+ *
+ * `kind` is 'cover' or 'logo'. Everything except the endpoint, the attribute
+ * and the wording is identical, and a second hand-written copy of an upload
+ * field is a second place for the busy/error handling to drift.
+ */
+function imageField(modal, tag, kind) {
+  const attr = kind === 'logo' ? 'logoUrl' : 'coverUrl';
+  const route = kind === 'logo' ? 'tag-logos' : 'tag-covers';
+
+  // Per-kind state, so uploading a logo does not put the cover field into a
+  // spinner and vice versa.
+  modal.tagImages ??= {};
+  const s = (modal.tagImages[kind] ??= {
+    url: tag.attribute(attr) || null,
+    busy: false,
+    error: null,
+  });
 
   const send = (method, body) => {
-    modal.coverBusy = true;
-    modal.coverError = null;
+    s.busy = true;
+    s.error = null;
     m.redraw();
 
     return app
       .request({
         method,
-        url: `${app.forum.attribute('apiUrl')}/tag-covers/${tag.id()}`,
+        url: `${app.forum.attribute('apiUrl')}/${route}/${tag.id()}`,
         body,
         serialize: (raw) => raw, // FormData must not be JSON-encoded
       })
       .then((res) => {
-        modal.coverUrl = (res && res.coverUrl) || null;
+        s.url = (res && res[attr]) || null;
         // Keep the store in step so other views pick the change up without
         // a reload.
-        try { tag.pushAttributes({ coverUrl: modal.coverUrl }); } catch (e) {}
+        try { tag.pushAttributes({ [attr]: s.url }); } catch (e) {}
       })
-      .catch(() => { modal.coverError = t('failed'); })
-      .then(() => { modal.coverBusy = false; m.redraw(); });
+      .catch(() => { s.error = t('failed'); })
+      .then(() => { s.busy = false; m.redraw(); });
   };
 
   const onpick = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     const data = new FormData();
-    data.append('cover', file);
+    data.append(kind, file);
     send('POST', data);
     e.target.value = '';
   };
 
   return m('.Form-group.TagCovers-field', [
-    m('label', t('label')),
-    m('.helpText', t('help')),
+    m('label', t(kind + '_label')),
+    m('.helpText', t(kind + '_help')),
 
-    modal.coverUrl
-      ? m('.TagCovers-preview', m('img', { src: modal.coverUrl, alt: '' }))
+    s.url
+      ? m('.TagCovers-preview', { className: kind === 'logo' ? 'TagCovers-preview--logo' : '' },
+          m('img', { src: s.url, alt: '' }))
       : null,
 
     m('.TagCovers-actions', [
-      m('label.Button.TagCovers-pick', { disabled: modal.coverBusy }, [
-        modal.coverBusy ? t('uploading') : (modal.coverUrl ? t('replace') : t('upload')),
+      m('label.Button.TagCovers-pick', { disabled: s.busy }, [
+        s.busy ? t('uploading') : (s.url ? t('replace') : t('upload')),
         m('input', {
           type: 'file',
           accept: 'image/png,image/jpeg,image/webp,image/gif',
-          disabled: modal.coverBusy,
+          disabled: s.busy,
           onchange: onpick,
         }),
       ]),
-      modal.coverUrl
+      s.url
         ? m(Button, {
             className: 'Button Button--danger',
-            disabled: modal.coverBusy,
+            disabled: s.busy,
             onclick: () => send('DELETE', null),
           }, t('remove'))
         : null,
     ]),
 
-    modal.coverError ? m('.TagCovers-error', modal.coverError) : null,
+    s.error ? m('.TagCovers-error', s.error) : null,
   ]);
 }

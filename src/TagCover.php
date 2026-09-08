@@ -6,7 +6,8 @@ use Flarum\Database\AbstractModel;
 
 /**
  * @property int $tag_id
- * @property string $path
+ * @property string|null $path
+ * @property string|null $logo_path
  * @property \Carbon\Carbon|null $updated_at
  */
 class TagCover extends AbstractModel
@@ -21,7 +22,7 @@ class TagCover extends AbstractModel
 
     // Flarum's AbstractModel guards every attribute, so updateOrCreate()
     // throws MassAssignmentException without this.
-    protected $fillable = ['tag_id', 'path', 'updated_at'];
+    protected $fillable = ['tag_id', 'path', 'logo_path', 'updated_at'];
 
     protected $casts = [
         'tag_id' => 'integer',

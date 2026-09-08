@@ -15,7 +15,13 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
-/** POST /api/tag-covers/{id} — attach a cover image to a tag. */
+/**
+ * POST /api/tag-covers/{id} and /api/tag-logos/{id} — attach an image to a tag.
+ *
+ * One class for both kinds: the validation, the size ceiling and the sniffed
+ * type are the same question about the same upload, and a second copy of them
+ * is a second place for the answer to drift.
+ */
 class UploadCoverController implements RequestHandlerInterface
 {
     public const MAX_BYTES = 8 * 1024 * 1024;
@@ -30,6 +36,14 @@ class UploadCoverController implements RequestHandlerInterface
     {
         RequestUtil::getActor($request)->assertAdmin();
 
+        // 🚨 The ROUTE says which image this is, never the request body — a
+        // caller who could name the kind could write a logo through the cover
+        // endpoint and past the other one's size ceiling.
+        $logo = str_contains($request->getUri()->getPath(), '/tag-logos/');
+        $kind = $logo ? 'logo' : 'cover';
+        $field = $kind;
+        $column = $logo ? 'logo_path' : 'path';
+
         $tagId = (int) Arr::get($request->getQueryParams(), 'id', 0);
         $tag = Tag::query()->find($tagId);
 
@@ -37,30 +51,30 @@ class UploadCoverController implements RequestHandlerInterface
             throw new ModelNotFoundException();
         }
 
-        $file = Arr::get($request->getUploadedFiles(), 'cover');
+        $file = Arr::get($request->getUploadedFiles(), $field);
 
         if (! $file instanceof UploadedFileInterface || $file->getError() !== UPLOAD_ERR_OK) {
-            throw new ValidationException(['cover' => 'No image was uploaded.']);
+            throw new ValidationException([$field => 'No image was uploaded.']);
         }
 
         if ($file->getSize() > self::MAX_BYTES) {
-            throw new ValidationException(['cover' => 'That image is larger than 8MB.']);
+            throw new ValidationException([$field => 'That image is larger than 8MB.']);
         }
 
         // Trust the sniffed type, not the client-supplied one.
         $type = (string) @mime_content_type($file->getStream()->getMetadata('uri'));
 
         if (! in_array($type, self::ALLOWED, true)) {
-            throw new ValidationException(['cover' => 'That file is not a PNG, JPEG, WebP or GIF image.']);
+            throw new ValidationException([$field => 'That file is not a PNG, JPEG, WebP or GIF image.']);
         }
 
-        $path = $this->covers->put($tagId, $file);
+        $path = $this->covers->put($tagId, $file, $kind);
 
         TagCover::query()->updateOrCreate(
             ['tag_id' => $tagId],
-            ['path' => $path, 'updated_at' => date('Y-m-d H:i:s')]
+            [$column => $path, 'updated_at' => date('Y-m-d H:i:s')]
         );
 
-        return new JsonResponse(['coverUrl' => $this->covers->url($path)]);
+        return new JsonResponse([($logo ? 'logoUrl' : 'coverUrl') => $this->covers->url($path)]);
     }
 }

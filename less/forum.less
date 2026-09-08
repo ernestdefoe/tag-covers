@@ -1,8 +1,18 @@
-// Consumers read --tag-cover (or --cov). Nothing here assumes a particular
-// card markup, so the extension stays independent of whatever renders tags.
+// Consumers read --tag-cover / --tag-logo (or the short --cov / --lg).
+// Nothing here assumes a particular card markup, so the extension stays
+// independent of whatever renders tags.
 [data-tag-cover] {
   background-image: var(--tag-cover);
   background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+// A logo is `contain`, not `cover`: cropping a crest to fill a box is how a
+// logo stops being recognisable.
+[data-tag-logo] {
+  background-image: var(--tag-logo);
+  background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
 }
