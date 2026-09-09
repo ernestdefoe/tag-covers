@@ -55,6 +55,10 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
         // A chip links to its own tag, so it IS the anchor rather than an
         // ancestor of one.
         `a.BespokeForum-sub[href$="/t/${esc}"]{${decl}}`,
+        // Page Builder's tag grid, which is the same shape: the card IS the
+        // link. Without this a front page built from that block is the one
+        // place on the site where the forums have no crests.
+        `a.PB-tagCard[href$="/t/${esc}"]{${decl}}`,
 
         /*
          * The crest inside core's own tag pill, wherever one is drawn — a
