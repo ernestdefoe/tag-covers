@@ -45,6 +45,21 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
 
       rules.push(
         `[data-tag-cover="${esc}"]{${decl}}`,
+
+        /*
+         * 🚨 The same variables, on an attribute that paints NOTHING.
+         *
+         * `data-tag-cover` is a paint hook — the stylesheet draws the cover on
+         * anything carrying it — so an element that only wants to reach the
+         * crest through `var(--lg)` cannot use it without also wearing a
+         * full-bleed photograph. That caught out a discussion list that wanted
+         * its forum's badge in the background and got the cover art instead.
+         *
+         * This is the seam for that: say which tag an element represents, get
+         * the imagery as custom properties, and decide for yourself what to do
+         * with them.
+         */
+        `[data-tag-vars="${esc}"]{${decl}}`,
         // 🚨 DIRECT-child anchor, not any descendant. A forum card contains a
         // link for every subforum chip inside it, so `:has(a[href$=...])`
         // matched the card for each of its children too and the last child in
