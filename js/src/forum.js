@@ -54,7 +54,30 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
         `.TagTile:has(> a[href$="/t/${esc}"]),a.TagTile[href$="/t/${esc}"]{${decl}}`,
         // A chip links to its own tag, so it IS the anchor rather than an
         // ancestor of one.
-        `a.BespokeForum-sub[href$="/t/${esc}"]{${decl}}`
+        `a.BespokeForum-sub[href$="/t/${esc}"]{${decl}}`,
+
+        /*
+         * The crest inside core's own tag pill, wherever one is drawn — a
+         * discussion's header, a list row, a search result.
+         *
+         * 🚨 The whole RULE is emitted per tag, not just the variable, and
+         * that is the point: `tagLabel` is a helper function rather than a
+         * component, so there is no element to render a crest into and no way
+         * for CSS to ask "does this tag have a logo?". Emitting the marker
+         * only for tags that HAVE one puts the condition where it can actually
+         * be expressed — a pill with no logo is never given the inset, so it
+         * cannot end up with a gap where a crest is not.
+         *
+         * Sized in `em` so it follows the pill's own font size; these labels
+         * are drawn at half a dozen sizes across a board.
+         */
+        logo
+          ? `a.TagLabel[href$="/t/${esc}"] .TagLabel-name::before{` +
+              `content:"";display:inline-block;width:1em;height:1em;` +
+              `margin-inline-end:.35em;vertical-align:-.15em;` +
+              `background-image:${url(logo)};background-size:contain;` +
+              `background-position:center;background-repeat:no-repeat}`
+          : ''
       );
     });
 
@@ -65,7 +88,7 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
       document.head.appendChild(el);
     }
 
-    const css = rules.join('\n');
+    const css = rules.filter(Boolean).join('\n');
     if (el.textContent !== css) el.textContent = css;
   };
 
