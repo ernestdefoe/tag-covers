@@ -3,12 +3,14 @@
 use Ernestdefoe\TagCovers\Api\Controller\DeleteCoverController;
 use Ernestdefoe\TagCovers\Api\Controller\UploadCoverController;
 use Ernestdefoe\TagCovers\Api\Resource\TagCoverField;
+use Ernestdefoe\TagCovers\Frontend\AddTagImagery;
 use Flarum\Extend;
 
 return [
     (new Extend\Frontend('forum'))
         ->js(__DIR__.'/js/dist/forum.js')
-        ->css(__DIR__.'/less/forum.less'),
+        ->css(__DIR__.'/less/forum.less')
+        ->content(AddTagImagery::class),
 
     (new Extend\Frontend('admin'))
         ->js(__DIR__.'/js/dist/admin.js')

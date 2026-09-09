@@ -16,20 +16,42 @@ import app from 'flarum/forum/app';
  */
 app.initializers.add('ernestdefoe-tag-covers', () => {
   const write = () => {
-    let tags = [];
-    try { tags = app.store.all('tags') || []; } catch (e) { return; }
+    /*
+     * 🚨 The payload FIRST, the store second.
+     *
+     * `app.store.all('tags')` holds whatever the page happened to load, which
+     * on a Flarum forum is the primary tags and nothing else — so a board with
+     * a hundred child tags published rules for a handful of them and every
+     * other crest was simply missing, on every page, with nothing to say why.
+     * The server publishes the whole map; the store is the fallback for a
+     * payload that predates it.
+     */
+    const published = (app.data && app.data.tagCoverImagery) || null;
+
+    let entries = [];
+
+    if (published) {
+      entries = Object.keys(published).map((slug) => ({
+        slug,
+        cover: published[slug].cover,
+        logo: published[slug].logo,
+      }));
+    } else {
+      let tags = [];
+      try { tags = app.store.all('tags') || []; } catch (e) { return; }
+
+      entries = tags.map((tag) => {
+        try {
+          return { slug: tag.slug(), cover: tag.attribute('coverUrl'), logo: tag.attribute('logoUrl') };
+        } catch (e) {
+          return null;
+        }
+      }).filter(Boolean);
+    }
 
     const rules = [];
 
-    tags.forEach((tag) => {
-      let cover;
-      let logo;
-      let slug;
-      try {
-        cover = tag.attribute('coverUrl');
-        logo = tag.attribute('logoUrl');
-        slug = tag.slug();
-      } catch (e) { return; }
+    entries.forEach(({ slug, cover, logo }) => {
       if (!slug || (!cover && !logo)) return;
 
       const esc = String(slug).replace(/"/g, '\\"');
