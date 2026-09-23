@@ -3,7 +3,7 @@
 Gives every Flarum tag a cover image. Upload one in the tag's own edit
 modal, and it becomes available anywhere a tag is rendered as a card.
 
-Private extension. Flarum 2, requires `flarum/tags`.
+Flarum 2, requires `flarum/tags`.
 
 ## Using it
 
@@ -47,6 +47,13 @@ filename prefix rather than trusting the path in the database. An upload
 that writes its file and then fails before saving the row would otherwise
 leave an orphan nothing referenced.
 
+## Installation
+
+```bash
+composer require ernestdefoe/tag-covers
+php flarum cache:clear
+```
+
 ## Licence
 
-Proprietary. All rights reserved.
+MIT.
