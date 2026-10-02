@@ -1,4 +1,6 @@
 import app from 'flarum/forum/app';
+import { extend } from 'flarum/common/extend';
+import TagsPage from 'ext:flarum/tags/forum/components/TagsPage';
 
 /**
  * Publishes each tag's images as CSS custom properties.
@@ -141,4 +143,73 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
   document.addEventListener('DOMContentLoaded', refresh);
   setTimeout(write, 1200);
   setTimeout(write, 3000);
+});
+
+/**
+ * A tag's cover and logo, from the published map first and the model second —
+ * the same order, for the same reason, as the stylesheet above.
+ */
+function imageryFor(tag) {
+  const published = (app.data && app.data.tagCoverImagery) || {};
+  let slug = null;
+  try { slug = tag.slug(); } catch (e) { return {}; }
+
+  const fromMap = (slug && published[slug]) || {};
+
+  return {
+    slug,
+    cover: fromMap.cover || tag.attribute('coverUrl') || null,
+    logo: fromMap.logo || tag.attribute('logoUrl') || null,
+  };
+}
+
+/*
+ * 🚨 The stock tags page DRAWS the images itself.
+ *
+ * Until 1.2.0 this extension only published custom properties and left the
+ * drawing to a theme. Every theme that drew them was one of ours, configured
+ * on our own forums, so on anybody else's forum an uploaded cover went
+ * nowhere: the tile carried `--tag-cover` and nothing ever read it. Someone
+ * installing this to put pictures on their tags page saw no pictures.
+ *
+ * Real elements, not pseudo-elements on the tile — Bespoke already spends the
+ * tile's ::before and ::after on its shine and its border, and a second claim
+ * on either would wipe one of them out. And they are rendered only for a tag
+ * that HAS an image, so a tile without one is the stock tile, untouched.
+ */
+app.initializers.add('ernestdefoe-tag-covers-tiles', () => {
+  extend(TagsPage.prototype, 'tagTileView', function (vnode, tag) {
+    if (!vnode || !Array.isArray(vnode.children)) return;
+
+    const { slug, cover, logo } = imageryFor(tag);
+    if (!cover && !logo) return;
+
+    if (cover) {
+      vnode.attrs.className = `${vnode.attrs.className || ''} TagTile--hasCover`;
+      vnode.children.unshift(
+        m('.TagTile-cover', {
+          'aria-hidden': 'true',
+          style: { backgroundImage: `url("${String(cover).replace(/"/g, '\\"')}")` },
+        })
+      );
+    }
+
+    if (logo) {
+      // The info link's first child is the heading: [icon | false, name].
+      // A logo stands in for the icon — a crest beside a Font Awesome glyph
+      // is two marks for one thing.
+      const info = vnode.children.find((c) => c && c.attrs && /\bTagTile-info\b/.test(c.attrs.className || ''));
+      const heading = info && Array.isArray(info.children)
+        ? info.children.find((c) => c && c.attrs && /\bTagTile-heading\b/.test(c.attrs.className || ''))
+        : null;
+
+      if (heading && Array.isArray(heading.children)) {
+        const img = m('img.TagTile-logo', { src: logo, alt: '', loading: 'lazy', 'data-tag-slug': slug });
+        const iconAt = heading.children.findIndex((c) => c && c.attrs && /\bicon\b/.test(c.attrs.className || ''));
+
+        if (iconAt >= 0) heading.children[iconAt] = img;
+        else heading.children.unshift(img);
+      }
+    }
+  });
 });

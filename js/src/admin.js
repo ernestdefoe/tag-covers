@@ -1,5 +1,5 @@
 import app from 'flarum/admin/app';
-import { extend } from 'flarum/common/extend';
+import { extend, override } from 'flarum/common/extend';
 import EditTagModal from 'ext:flarum/tags/admin/components/EditTagModal';
 import Button from 'flarum/common/components/Button';
 
@@ -7,16 +7,78 @@ const t = (key) => app.translator.trans(`ernestdefoe-tag-covers.admin.${key}`);
 
 app.initializers.add('ernestdefoe-tag-covers', () => {
   extend(EditTagModal.prototype, 'fields', function (items) {
-    const tag = this.attrs.model;
-
-    // A tag being created has no id yet, so there is nothing to attach a
-    // file to. The field appears once the tag has been saved.
-    if (!tag || !tag.exists) return;
+    // `this.tag`, not `attrs.model`: a tag being created has no model in its
+    // attrs — the modal makes the record itself.
+    const tag = this.tag || this.attrs.model;
+    if (!tag) return;
 
     items.add('cover', imageField(this, tag, 'cover'), 4);
     items.add('logo', imageField(this, tag, 'logo'), 3);
   });
+
+  /*
+   * 🚨 A NEW tag's images are held, then sent the moment it has an id.
+   *
+   * There is nothing to attach a file to until the tag exists, and this field
+   * used to simply not appear until then — so creating a tag meant saving it,
+   * closing the modal, finding it again and reopening it to add the picture,
+   * which nothing on screen told you. Now the file is picked with everything
+   * else and uploaded right after the tag's first save, before the modal
+   * closes, so a failure is still in front of the person who caused it.
+   *
+   * The wrap is on THIS save only and removes itself, so the next edit of the
+   * same tag goes through the model's own save untouched.
+   */
+  override(EditTagModal.prototype, 'onsubmit', function (original, e) {
+    const tag = this.tag;
+    const held = Object.entries(this.tagImages || {})
+      .filter(([, s]) => s.pending)
+      .map(([kind, s]) => ({ kind, file: s.pending }));
+
+    if (tag && !tag.exists && held.length) {
+      const save = tag.save;
+
+      tag.save = function (...args) {
+        tag.save = save;
+
+        return save.apply(this, args).then((result) => {
+          // 🚨 Upload against what save() RETURNS, not the modal's record. A
+          // create is answered with a new record pushed into the store; the
+          // object the modal holds never learns its id, so posting against
+          // it sent every held image to `/tag-covers/undefined`.
+          const saved = result && typeof result.id === 'function' && result.id() ? result : tag;
+
+          return Promise.all(held.map(({ kind, file }) => upload(saved, kind, file).catch(() => {
+            app.alerts.show({ type: 'error' }, t('failed_after_create'));
+          }))).then(() => result);
+        });
+      };
+    }
+
+    return original(e);
+  });
 });
+
+/** POST one image for a tag that exists, and keep the store in step. */
+function upload(tag, kind, file) {
+  const attr = kind === 'logo' ? 'logoUrl' : 'coverUrl';
+  const route = kind === 'logo' ? 'tag-logos' : 'tag-covers';
+  const data = new FormData();
+  data.append(kind, file);
+
+  return app
+    .request({
+      method: 'POST',
+      url: `${app.forum.attribute('apiUrl')}/${route}/${tag.id()}`,
+      body: data,
+      serialize: (raw) => raw, // FormData must not be JSON-encoded
+    })
+    .then((res) => {
+      const url = (res && res[attr]) || null;
+      try { tag.pushAttributes({ [attr]: url }); } catch (e) {}
+      return url;
+    });
+}
 
 /**
  * One field, both images.
@@ -63,6 +125,16 @@ function imageField(modal, tag, kind) {
   const onpick = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
+
+    if (!tag.exists) {
+      // Held until the tag is saved — see the onsubmit override.
+      if (s.url && s.pending) URL.revokeObjectURL(s.url);
+      s.pending = file;
+      s.url = URL.createObjectURL(file);
+      e.target.value = '';
+      return;
+    }
+
     const data = new FormData();
     data.append(kind, file);
     send('POST', data);
@@ -92,11 +164,20 @@ function imageField(modal, tag, kind) {
         ? m(Button, {
             className: 'Button Button--danger',
             disabled: s.busy,
-            onclick: () => send('DELETE', null),
+            onclick: () => {
+              if (s.pending) {
+                URL.revokeObjectURL(s.url);
+                s.pending = null;
+                s.url = null;
+                return;
+              }
+              send('DELETE', null);
+            },
           }, t('remove'))
         : null,
     ]),
 
+    s.pending ? m('.helpText.TagCovers-pending', t('pending')) : null,
     s.error ? m('.TagCovers-error', s.error) : null,
   ]);
 }

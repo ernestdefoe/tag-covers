@@ -12,6 +12,15 @@ works best, around 1200×480. PNG, JPEG, WebP or GIF up to 8MB; everything
 is re-encoded to WebP at a maximum width of 1200, so a 2MB upload from an
 image generator lands as roughly 100KB.
 
+## On the tags page
+
+Out of the box, with no theme involved, a tag tile on `/tags` shows its
+cover as a band across the top and its logo in place of the icon. A tile
+whose tag has neither is the stock tile, untouched.
+
+A new tag can have its images picked in the same dialog that creates it;
+they upload as soon as the tag is saved.
+
 ## For themes
 
 Each tag gains a `coverUrl` attribute on the API, and the forum frontend

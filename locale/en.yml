@@ -12,3 +12,5 @@ ernestdefoe-tag-covers:
     remove: Remove
     uploading: Uploading…
     failed: That image could not be uploaded.
+    pending: Uploads when you save the tag.
+    failed_after_create: The tag was created, but its image could not be uploaded. Open the tag and try again.
