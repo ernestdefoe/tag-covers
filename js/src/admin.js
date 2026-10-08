@@ -48,9 +48,13 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
           // it sent every held image to `/tag-covers/undefined`.
           const saved = result && typeof result.id === 'function' && result.id() ? result : tag;
 
-          return Promise.all(held.map(({ kind, file }) => upload(saved, kind, file).catch(() => {
-            app.alerts.show({ type: 'error' }, t('failed_after_create'));
-          }))).then(() => result);
+          return Promise.all(
+            held.map(({ kind, file }) =>
+              upload(saved, kind, file).catch(() => {
+                app.alerts.show({ type: 'error' }, t('failed_after_create'));
+              })
+            )
+          ).then(() => result);
         });
       };
     }
@@ -75,7 +79,9 @@ function upload(tag, kind, file) {
     })
     .then((res) => {
       const url = (res && res[attr]) || null;
-      try { tag.pushAttributes({ [attr]: url }); } catch (e) {}
+      try {
+        tag.pushAttributes({ [attr]: url });
+      } catch (e) {}
       return url;
     });
 }
@@ -116,10 +122,17 @@ function imageField(modal, tag, kind) {
         s.url = (res && res[attr]) || null;
         // Keep the store in step so other views pick the change up without
         // a reload.
-        try { tag.pushAttributes({ [attr]: s.url }); } catch (e) {}
+        try {
+          tag.pushAttributes({ [attr]: s.url });
+        } catch (e) {}
       })
-      .catch(() => { s.error = t('failed'); })
-      .then(() => { s.busy = false; m.redraw(); });
+      .catch(() => {
+        s.error = t('failed');
+      })
+      .then(() => {
+        s.busy = false;
+        m.redraw();
+      });
   };
 
   const onpick = (e) => {
@@ -145,14 +158,11 @@ function imageField(modal, tag, kind) {
     m('label', t(kind + '_label')),
     m('.helpText', t(kind + '_help')),
 
-    s.url
-      ? m('.TagCovers-preview', { className: kind === 'logo' ? 'TagCovers-preview--logo' : '' },
-          m('img', { src: s.url, alt: '' }))
-      : null,
+    s.url ? m('.TagCovers-preview', { className: kind === 'logo' ? 'TagCovers-preview--logo' : '' }, m('img', { src: s.url, alt: '' })) : null,
 
     m('.TagCovers-actions', [
       m('label.Button.TagCovers-pick', { disabled: s.busy }, [
-        s.busy ? t('uploading') : (s.url ? t('replace') : t('upload')),
+        s.busy ? t('uploading') : s.url ? t('replace') : t('upload'),
         m('input', {
           type: 'file',
           accept: 'image/png,image/jpeg,image/webp,image/gif',
@@ -161,19 +171,23 @@ function imageField(modal, tag, kind) {
         }),
       ]),
       s.url
-        ? m(Button, {
-            className: 'Button Button--danger',
-            disabled: s.busy,
-            onclick: () => {
-              if (s.pending) {
-                URL.revokeObjectURL(s.url);
-                s.pending = null;
-                s.url = null;
-                return;
-              }
-              send('DELETE', null);
+        ? m(
+            Button,
+            {
+              className: 'Button Button--danger',
+              disabled: s.busy,
+              onclick: () => {
+                if (s.pending) {
+                  URL.revokeObjectURL(s.url);
+                  s.pending = null;
+                  s.url = null;
+                  return;
+                }
+                send('DELETE', null);
+              },
             },
-          }, t('remove'))
+            t('remove')
+          )
         : null,
     ]),
 

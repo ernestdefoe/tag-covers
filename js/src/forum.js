@@ -40,15 +40,21 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
       }));
     } else {
       let tags = [];
-      try { tags = app.store.all('tags') || []; } catch (e) { return; }
+      try {
+        tags = app.store.all('tags') || [];
+      } catch (e) {
+        return;
+      }
 
-      entries = tags.map((tag) => {
-        try {
-          return { slug: tag.slug(), cover: tag.attribute('coverUrl'), logo: tag.attribute('logoUrl') };
-        } catch (e) {
-          return null;
-        }
-      }).filter(Boolean);
+      entries = tags
+        .map((tag) => {
+          try {
+            return { slug: tag.slug(), cover: tag.attribute('coverUrl'), logo: tag.attribute('logoUrl') };
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean);
     }
 
     const rules = [];
@@ -62,10 +68,9 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
       // Both kinds are declared in one block per selector, so a tag with a
       // logo and no cover still gets its logo — an earlier version bailed on
       // a missing cover and took the logo with it.
-      const decl = [
-        cover ? `--tag-cover:${url(cover)};--cov:${url(cover)}` : '',
-        logo ? `--tag-logo:${url(logo)};--lg:${url(logo)}` : '',
-      ].filter(Boolean).join(';');
+      const decl = [cover ? `--tag-cover:${url(cover)};--cov:${url(cover)}` : '', logo ? `--tag-logo:${url(logo)};--lg:${url(logo)}` : '']
+        .filter(Boolean)
+        .join(';');
 
       rules.push(
         `[data-tag-cover="${esc}"]{${decl}}`,
@@ -152,7 +157,11 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
 function imageryFor(tag) {
   const published = (app.data && app.data.tagCoverImagery) || {};
   let slug = null;
-  try { slug = tag.slug(); } catch (e) { return {}; }
+  try {
+    slug = tag.slug();
+  } catch (e) {
+    return {};
+  }
 
   const fromMap = (slug && published[slug]) || {};
 
@@ -199,9 +208,8 @@ app.initializers.add('ernestdefoe-tag-covers-tiles', () => {
       // A logo stands in for the icon — a crest beside a Font Awesome glyph
       // is two marks for one thing.
       const info = vnode.children.find((c) => c && c.attrs && /\bTagTile-info\b/.test(c.attrs.className || ''));
-      const heading = info && Array.isArray(info.children)
-        ? info.children.find((c) => c && c.attrs && /\bTagTile-heading\b/.test(c.attrs.className || ''))
-        : null;
+      const heading =
+        info && Array.isArray(info.children) ? info.children.find((c) => c && c.attrs && /\bTagTile-heading\b/.test(c.attrs.className || '')) : null;
 
       if (heading && Array.isArray(heading.children)) {
         const img = m('img.TagTile-logo', { src: logo, alt: '', loading: 'lazy', 'data-tag-slug': slug });
