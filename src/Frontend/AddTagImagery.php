@@ -4,7 +4,8 @@ namespace Ernestdefoe\TagCovers\Frontend;
 
 use Ernestdefoe\TagCovers\CoverStore;
 use Flarum\Frontend\Document;
-use Illuminate\Database\ConnectionInterface;
+use Flarum\Http\RequestUtil;
+use Flarum\Tags\Tag;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -24,7 +25,6 @@ use Psr\Http\Message\ServerRequestInterface;
 class AddTagImagery
 {
     public function __construct(
-        protected ConnectionInterface $db,
         protected CoverStore $store
     ) {
     }
@@ -32,16 +32,20 @@ class AddTagImagery
     public function __invoke(Document $document, ServerRequestInterface $request): void
     {
         /*
-         * 🚨 One joined query, not Tag models. This runs on EVERY page render,
+         * 🚨 One joined query, not hydrated Tag models. This runs on EVERY page render,
          * so it must not be the reason a forum with a lot of tags gets slower —
          * and the only two things a consumer needs are the slug it keys its
          * rule on and the URL.
          */
-        $rows = $this->db->table('tag_covers')
-            ->join('tags', 'tags.id', '=', 'tag_covers.tag_id')
+        // Only tags the viewer can see: a restricted tag's slug and imagery
+        // are not for a guest's page source.
+        $rows = Tag::query()
+            ->whereVisibleTo(RequestUtil::getActor($request))
+            ->join('tag_covers', 'tags.id', '=', 'tag_covers.tag_id')
             ->where(function ($q) {
                 $q->whereNotNull('tag_covers.path')->orWhereNotNull('tag_covers.logo_path');
             })
+            ->toBase()
             ->get(['tags.slug', 'tag_covers.path', 'tag_covers.logo_path']);
 
         $map = [];
