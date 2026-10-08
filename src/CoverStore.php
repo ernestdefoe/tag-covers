@@ -2,8 +2,8 @@
 
 namespace Ernestdefoe\TagCovers;
 
+use Illuminate\Contracts\Filesystem\Cloud;
 use Illuminate\Contracts\Filesystem\Factory;
-use Illuminate\Contracts\Filesystem\Filesystem;
 use Intervention\Image\ImageManager;
 use Psr\Http\Message\UploadedFileInterface;
 
@@ -32,13 +32,21 @@ class CoverStore
         'logo'  => 256,
     ];
 
-    protected Filesystem $disk;
+    protected Cloud $disk;
 
     public function __construct(
         Factory $filesystem,
         protected ImageManager $images,
     ) {
-        $this->disk = $filesystem->disk('flarum-assets');
+        $disk = $filesystem->disk('flarum-assets');
+
+        // url() is on Cloud, not the base contract; core types this disk the
+        // same way (Frontend\Assets, ExtensionManager).
+        if (! $disk instanceof Cloud) {
+            throw new \RuntimeException('The flarum-assets disk cannot produce public URLs.');
+        }
+
+        $this->disk = $disk;
     }
 
     /** @return string the stored filename */
