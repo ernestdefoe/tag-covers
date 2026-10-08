@@ -29,7 +29,7 @@ class CoverStore
     /** kind => the widest it is ever rendered, near enough. */
     public const MAX_WIDTH = [
         'cover' => 1200,
-        'logo'  => 256,
+        'logo' => 256,
     ];
 
     protected Cloud $disk;
