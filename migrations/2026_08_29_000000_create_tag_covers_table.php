@@ -1,5 +1,7 @@
 <?php
 
+use Ernestdefoe\TagCovers\CoverStore;
+use Illuminate\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 
@@ -24,7 +26,9 @@ return [
             $table->foreign('tag_id')->references('id')->on('tags')->cascadeOnDelete();
         });
     },
+    // Purging the extension takes the images' files with their rows.
     'down' => function (Builder $schema) {
+        CoverStore::purge(Container::getInstance());
         $schema->dropIfExists('tag_covers');
     },
 ];

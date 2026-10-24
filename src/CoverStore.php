@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\TagCovers;
 
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Filesystem\Cloud;
 use Illuminate\Contracts\Filesystem\Factory;
 use Intervention\Image\ImageManager;
@@ -25,6 +26,9 @@ use Psr\Http\Message\UploadedFileInterface;
 class CoverStore
 {
     public const QUALITY = 82;
+
+    /** The shape of every name putContents() gives a file. */
+    private const NAME = '/^tag-(cover|logo)-\d+-[0-9a-f]{8}\.webp$/D';
 
     /** kind => the widest it is ever rendered, near enough. */
     public const MAX_WIDTH = [
@@ -96,6 +100,22 @@ class CoverStore
                 $this->disk->delete($file);
             }
         }
+    }
+
+    /**
+     * Purging the extension deletes every cover and logo it stored. Called by
+     * the covers table's down(), so disabling alone keeps them.
+     *
+     * The flarum-assets disk is core's, so it is there while the extension is
+     * disabled, and a configured storage driver still applies. Only names of
+     * the shape putContents() writes are deleted: core's logo and favicon, and
+     * anything else on that disk, stay.
+     */
+    public static function purge(Container $container): void
+    {
+        $disk = $container->make(Factory::class)->disk('flarum-assets');
+
+        $disk->delete(preg_grep(self::NAME, $disk->files()));
     }
 
     public function url(string $path): string
