@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\TagCovers;
 
+use Carbon\Carbon;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Filesystem\Cloud;
 use Illuminate\Contracts\Filesystem\Factory;
@@ -56,15 +57,21 @@ class CoverStore
     /** @return string the stored filename */
     public function put(int $tagId, UploadedFileInterface $file, string $kind = 'cover'): string
     {
-        return $this->putContents($tagId, $file->getStream()->getContents(), $kind);
+        return $this->putContents($tagId, (string) $file->getStream(), $kind);
     }
 
     /**
-     * The same, from bytes already in hand.
+     * Store one image for a tag: write the file, point the tag's row at it,
+     * then delete the file it replaces.
      *
-     * Seeding a board from an existing site has no uploaded file to pass, and
-     * going through a fake UploadedFile just to reach the same three lines is
-     * more moving parts than the job needs.
+     * Takes bytes rather than an upload so seeding a board from an existing
+     * site (the importer) goes through the same three steps.
+     *
+     * 🚨 Old files are found by the path the ROW records, never by listing
+     * the disk: on S3 a listing is a paginated LIST of everything else on
+     * flarum-assets, on every upload. The order keeps that path honest — the
+     * row moves before the old file goes, and if the row cannot be saved the
+     * new file is removed again, so no file is ever left that no row names.
      *
      * @return string the stored filename
      */
@@ -76,29 +83,44 @@ class CoverStore
             ->toWebp(self::QUALITY);
 
         $name = $this->prefix($tagId, $kind).substr(bin2hex(random_bytes(4)), 0, 8).'.webp';
+        $column = self::column($kind);
+        $old = TagCover::query()->whereKey($tagId)->value($column);
 
-        $this->forget($tagId, $kind);
         $this->disk->put($name, $encoded);
+
+        try {
+            TagCover::query()->updateOrCreate(['tag_id' => $tagId], [$column => $name, 'updated_at' => Carbon::now()]);
+        } catch (\Throwable $e) {
+            $this->disk->delete($name);
+
+            throw $e;
+        }
+
+        $this->deleteFile($tagId, $kind, $old);
 
         return $name;
     }
 
-    /**
-     * Remove every file of one kind belonging to a tag.
-     *
-     * Deliberately matched by PREFIX rather than by the path recorded in the
-     * database. An upload that writes its file and then fails before the row
-     * is saved leaves an orphan the recorded path knows nothing about; going
-     * by prefix means the next upload or removal sweeps it up.
-     */
+    /** Delete the file of one kind that a tag's row records. The row is the caller's to update. */
     public function forget(int $tagId, string $kind = 'cover'): void
     {
-        $prefix = $this->prefix($tagId, $kind);
+        $this->deleteFile($tagId, $kind, TagCover::query()->whereKey($tagId)->value(self::column($kind)));
+    }
 
-        foreach ($this->disk->files() as $file) {
-            if (str_starts_with(basename($file), $prefix)) {
-                $this->disk->delete($file);
-            }
+    /** The tag_covers column that records each kind. */
+    public static function column(string $kind): string
+    {
+        return $kind === 'logo' ? 'logo_path' : 'path';
+    }
+
+    /**
+     * Only ever a name this store wrote for THIS tag and kind: a row edited by
+     * hand cannot point the delete at core's logo or another tag's image.
+     */
+    protected function deleteFile(int $tagId, string $kind, mixed $path): void
+    {
+        if (is_string($path) && preg_match(self::NAME, $path) && str_starts_with($path, $this->prefix($tagId, $kind))) {
+            $this->disk->delete($path);
         }
     }
 

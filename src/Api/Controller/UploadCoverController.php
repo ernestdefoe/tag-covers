@@ -3,7 +3,6 @@
 namespace Ernestdefoe\TagCovers\Api\Controller;
 
 use Ernestdefoe\TagCovers\CoverStore;
-use Ernestdefoe\TagCovers\TagCover;
 use Flarum\Foundation\ValidationException;
 use Flarum\Http\RequestUtil;
 use Flarum\Locale\TranslatorInterface;
@@ -45,7 +44,6 @@ class UploadCoverController implements RequestHandlerInterface
         $logo = str_contains($request->getUri()->getPath(), '/tag-logos/');
         $kind = $logo ? 'logo' : 'cover';
         $field = $kind;
-        $column = $logo ? 'logo_path' : 'path';
 
         $tagId = (int) Arr::get($request->getQueryParams(), 'id', 0);
         $tag = Tag::query()->find($tagId);
@@ -64,19 +62,16 @@ class UploadCoverController implements RequestHandlerInterface
             throw new ValidationException([$field => $this->translator->trans('ernestdefoe-tag-covers.api.too_large')]);
         }
 
-        // Trust the sniffed type, not the client-supplied one.
-        $type = (string) @mime_content_type($file->getStream()->getMetadata('uri'));
+        // Trust the sniffed type, not the client-supplied one. Sniffed from
+        // the bytes, so a stream with no file behind it is judged the same.
+        $bytes = (string) $file->getStream();
+        $type = (string) (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
 
         if (! in_array($type, self::ALLOWED, true)) {
             throw new ValidationException([$field => $this->translator->trans('ernestdefoe-tag-covers.api.bad_type')]);
         }
 
-        $path = $this->covers->put($tagId, $file, $kind);
-
-        TagCover::query()->updateOrCreate(
-            ['tag_id' => $tagId],
-            [$column => $path, 'updated_at' => date('Y-m-d H:i:s')]
-        );
+        $path = $this->covers->putContents($tagId, $bytes, $kind);
 
         return new JsonResponse([($logo ? 'logoUrl' : 'coverUrl') => $this->covers->url($path)]);
     }

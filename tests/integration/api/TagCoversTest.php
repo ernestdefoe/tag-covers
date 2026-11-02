@@ -7,7 +7,9 @@ use Flarum\Tags\Tag;
 use Flarum\Testing\integration\RetrievesAuthorizedUsers;
 use Flarum\Testing\integration\TestCase;
 use Flarum\User\User;
+use Laminas\Diactoros\StreamFactory;
 use Laminas\Diactoros\UploadedFile;
+use Illuminate\Contracts\Filesystem\Factory;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -226,5 +228,51 @@ class TagCoversTest extends TestCase
         $admin = $this->pageImagery(1);
         $this->assertEqualsCanonicalizing(['open', 'staff-only-room'], array_keys($admin));
         $this->assertStringContainsString('tag-logo-3-', $admin['staff-only-room']['logo']);
+    }
+
+    #[Test]
+    public function replacing_an_image_deletes_only_the_file_it_replaces()
+    {
+        $disk = $this->app()->getContainer()->make(Factory::class)->disk('flarum-assets');
+
+        [, $first] = $this->upload('covers', 1, 1);
+        [, $logo] = $this->upload('logos', 1, 1);
+        [, $other] = $this->upload('covers', 2, 1);
+        $firstName = basename($first['coverUrl']);
+
+        // A file of this tag's shape that no row records: not ours to judge,
+        // and finding it would need a listing of the whole disk.
+        $disk->put('tag-cover-1-0000beef.webp', 'x');
+
+        [$status, $second] = $this->upload('covers', 1, 1);
+        $this->assertSame(200, $status);
+        $this->assertNotSame($first['coverUrl'], $second['coverUrl']);
+
+        $this->assertFalse($disk->exists($firstName), 'The replaced cover is deleted');
+        $this->assertTrue($disk->exists(basename($second['coverUrl'])));
+        $this->assertTrue($disk->exists(basename($logo['logoUrl'])), 'The logo is a different kind');
+        $this->assertTrue($disk->exists(basename($other['coverUrl'])), 'Another tag\'s cover stays');
+        $this->assertSame(basename($second['coverUrl']), TagCover::query()->find(1)->path);
+
+        $this->assertSame(200, $this->remove('covers', 1, 1));
+        $this->assertFalse($disk->exists(basename($second['coverUrl'])), 'Removing deletes the recorded file');
+        $this->assertTrue($disk->exists(basename($logo['logoUrl'])));
+
+        $disk->delete('tag-cover-1-0000beef.webp');
+    }
+
+    #[Test]
+    public function an_upload_with_no_file_behind_its_stream_is_still_sniffed()
+    {
+        $image = imagecreatetruecolor(4, 4);
+        ob_start();
+        imagepng($image);
+        $png = (string) ob_get_clean();
+
+        $stream = (new StreamFactory())->createStream($png);
+        [$status, $body] = $this->upload('covers', 1, 1, ['cover' => new UploadedFile($stream, strlen($png), UPLOAD_ERR_OK, 'cover.png', 'image/png')]);
+
+        $this->assertSame(200, $status);
+        $this->assertStringContainsString('tag-cover-1-', $body['coverUrl']);
     }
 }

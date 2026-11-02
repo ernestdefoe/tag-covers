@@ -41,5 +41,13 @@ return [
                 $table->dropColumn('logo_path');
             });
         }
+
+        // Back to NOT NULL, as before up(). A row with no cover only ever
+        // held a logo, and the logo is gone with its column.
+        $schema->getConnection()->table('tag_covers')->whereNull('path')->delete();
+
+        $schema->table('tag_covers', function (Blueprint $table) {
+            $table->string('path')->nullable(false)->change();
+        });
     },
 ];
