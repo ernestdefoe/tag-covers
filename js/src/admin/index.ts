@@ -3,7 +3,18 @@ import { extend, override } from 'flarum/common/extend';
 import EditTagModal from 'ext:flarum/tags/admin/components/EditTagModal';
 import Button from 'flarum/common/components/Button';
 
-const t = (key) => app.translator.trans(`ernestdefoe-tag-covers.admin.${key}`);
+const t = (key: string): string => app.translator.trans(`ernestdefoe-tag-covers.admin.${key}`, {}, true);
+
+type Kind = 'cover' | 'logo';
+
+interface ImageState {
+  url: string | null;
+  busy: boolean;
+  error: string | null;
+  pending?: File | null;
+}
+
+type UrlResponse = Partial<Record<'coverUrl' | 'logoUrl', string | null>>;
 
 app.initializers.add('ernestdefoe-tag-covers', () => {
   extend(EditTagModal.prototype, 'fields', function (items) {
@@ -31,17 +42,17 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
    */
   override(EditTagModal.prototype, 'onsubmit', function (original, e) {
     const tag = this.tag;
-    const held = Object.entries(this.tagImages || {})
+    const held = Object.entries(((this as any).tagImages || {}) as Record<string, ImageState>)
       .filter(([, s]) => s.pending)
-      .map(([kind, s]) => ({ kind, file: s.pending }));
+      .map(([kind, s]) => ({ kind: kind as Kind, file: s.pending as File }));
 
     if (tag && !tag.exists && held.length) {
       const save = tag.save;
 
-      tag.save = function (...args) {
+      tag.save = function (this: any, ...args: any[]) {
         tag.save = save;
 
-        return save.apply(this, args).then((result) => {
+        return save.apply(this, args as any).then((result: any) => {
           // 🚨 Upload against what save() RETURNS, not the modal's record. A
           // create is answered with a new record pushed into the store; the
           // object the modal holds never learns its id, so posting against
@@ -64,24 +75,22 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
 });
 
 /** POST one image for a tag that exists, and keep the store in step. */
-function upload(tag, kind, file) {
+function upload(tag: any, kind: Kind, file: File): Promise<string | null> {
   const attr = kind === 'logo' ? 'logoUrl' : 'coverUrl';
   const route = kind === 'logo' ? 'tag-logos' : 'tag-covers';
   const data = new FormData();
   data.append(kind, file);
 
   return app
-    .request({
+    .request<UrlResponse>({
       method: 'POST',
       url: `${app.forum.attribute('apiUrl')}/${route}/${tag.id()}`,
       body: data,
-      serialize: (raw) => raw, // FormData must not be JSON-encoded
+      serialize: (raw: any) => raw, // FormData must not be JSON-encoded
     })
     .then((res) => {
       const url = (res && res[attr]) || null;
-      try {
-        tag.pushAttributes({ [attr]: url });
-      } catch (e) {}
+      tag.pushAttributes({ [attr]: url });
       return url;
     });
 }
@@ -93,38 +102,36 @@ function upload(tag, kind, file) {
  * and the wording is identical, and a second hand-written copy of an upload
  * field is a second place for the busy/error handling to drift.
  */
-function imageField(modal, tag, kind) {
+function imageField(modal: any, tag: any, kind: Kind) {
   const attr = kind === 'logo' ? 'logoUrl' : 'coverUrl';
   const route = kind === 'logo' ? 'tag-logos' : 'tag-covers';
 
   // Per-kind state, so uploading a logo does not put the cover field into a
   // spinner and vice versa.
   modal.tagImages ??= {};
-  const s = (modal.tagImages[kind] ??= {
+  const s: ImageState = (modal.tagImages[kind] ??= {
     url: tag.attribute(attr) || null,
     busy: false,
     error: null,
   });
 
-  const send = (method, body) => {
+  const send = (method: 'POST' | 'DELETE', body: FormData | null) => {
     s.busy = true;
     s.error = null;
     m.redraw();
 
     return app
-      .request({
+      .request<UrlResponse>({
         method,
         url: `${app.forum.attribute('apiUrl')}/${route}/${tag.id()}`,
         body,
-        serialize: (raw) => raw, // FormData must not be JSON-encoded
+        serialize: (raw: any) => raw, // FormData must not be JSON-encoded
       })
       .then((res) => {
         s.url = (res && res[attr]) || null;
         // Keep the store in step so other views pick the change up without
         // a reload.
-        try {
-          tag.pushAttributes({ [attr]: s.url });
-        } catch (e) {}
+        tag.pushAttributes({ [attr]: s.url });
       })
       .catch(() => {
         s.error = t('failed');
@@ -135,8 +142,9 @@ function imageField(modal, tag, kind) {
       });
   };
 
-  const onpick = (e) => {
-    const file = e.target.files && e.target.files[0];
+  const onpick = (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files && input.files[0];
     if (!file) return;
 
     if (!tag.exists) {
@@ -144,14 +152,14 @@ function imageField(modal, tag, kind) {
       if (s.url && s.pending) URL.revokeObjectURL(s.url);
       s.pending = file;
       s.url = URL.createObjectURL(file);
-      e.target.value = '';
+      input.value = '';
       return;
     }
 
     const data = new FormData();
     data.append(kind, file);
     send('POST', data);
-    e.target.value = '';
+    input.value = '';
   };
 
   return m('.Form-group.TagCovers-field', [
@@ -178,7 +186,7 @@ function imageField(modal, tag, kind) {
               disabled: s.busy,
               onclick: () => {
                 if (s.pending) {
-                  URL.revokeObjectURL(s.url);
+                  if (s.url) URL.revokeObjectURL(s.url);
                   s.pending = null;
                   s.url = null;
                   return;

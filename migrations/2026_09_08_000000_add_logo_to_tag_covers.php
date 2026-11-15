@@ -23,7 +23,7 @@ return [
 
         if (! $schema->hasColumn('tag_covers', 'logo_path')) {
             $schema->table('tag_covers', function (Blueprint $table) {
-                $table->string('logo_path')->nullable()->after('path');
+                $table->string('logo_path')->nullable();
             });
         }
 

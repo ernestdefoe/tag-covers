@@ -45,7 +45,7 @@ class UploadCoverController implements RequestHandlerInterface
         $kind = $logo ? 'logo' : 'cover';
         $field = $kind;
 
-        $tagId = (int) Arr::get($request->getQueryParams(), 'id', 0);
+        $tagId = (int) Arr::get($request->getAttribute('routeParameters', []), 'id', 0);
         $tag = Tag::query()->find($tagId);
 
         if (! $tag) {

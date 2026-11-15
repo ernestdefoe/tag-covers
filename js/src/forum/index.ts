@@ -16,6 +16,12 @@ import TagsPage from 'ext:flarum/tags/forum/components/TagsPage';
  * what lets a chip carry a crest without every renderer being taught about
  * logos.
  */
+type Imagery = { cover?: string | null; logo?: string | null };
+type Entry = { slug: string; cover?: string | null; logo?: string | null };
+
+/** The map AddTagImagery publishes: slug => its images. */
+const publishedMap = (): Record<string, Imagery> | null => ((app.data as any) && (app.data as any).tagCoverImagery) || null;
+
 app.initializers.add('ernestdefoe-tag-covers', () => {
   const write = () => {
     /*
@@ -28,9 +34,9 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
      * The server publishes the whole map; the store is the fallback for a
      * payload that predates it.
      */
-    const published = (app.data && app.data.tagCoverImagery) || null;
+    const published = publishedMap();
 
-    let entries = [];
+    let entries: Entry[] = [];
 
     if (published) {
       entries = Object.keys(published).map((slug) => ({
@@ -39,31 +45,18 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
         logo: published[slug].logo,
       }));
     } else {
-      let tags = [];
-      try {
-        tags = app.store.all('tags') || [];
-      } catch (e) {
-        return;
-      }
-
-      entries = tags
-        .map((tag) => {
-          try {
-            return { slug: tag.slug(), cover: tag.attribute('coverUrl'), logo: tag.attribute('logoUrl') };
-          } catch (e) {
-            return null;
-          }
-        })
-        .filter(Boolean);
+      entries = app.store
+        .all<any>('tags')
+        .map((tag): Entry => ({ slug: tag.slug(), cover: tag.attribute('coverUrl'), logo: tag.attribute('logoUrl') }));
     }
 
-    const rules = [];
+    const rules: string[] = [];
 
     entries.forEach(({ slug, cover, logo }) => {
       if (!slug || (!cover && !logo)) return;
 
       const esc = String(slug).replace(/"/g, '\\"');
-      const url = (u) => `url("${String(u).replace(/"/g, '\\"')}")`;
+      const url = (u: string) => `url("${String(u).replace(/"/g, '\\"')}")`;
 
       // Both kinds are declared in one block per selector, so a tag with a
       // logo and no cover still gets its logo — an earlier version bailed on
@@ -154,14 +147,9 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
  * A tag's cover and logo, from the published map first and the model second —
  * the same order, for the same reason, as the stylesheet above.
  */
-function imageryFor(tag) {
-  const published = (app.data && app.data.tagCoverImagery) || {};
-  let slug = null;
-  try {
-    slug = tag.slug();
-  } catch (e) {
-    return {};
-  }
+function imageryFor(tag: any): { slug?: string | null; cover?: string | null; logo?: string | null } {
+  const published = publishedMap() || {};
+  const slug: string | null = tag.slug();
 
   const fromMap = (slug && published[slug]) || {};
 
@@ -187,7 +175,7 @@ function imageryFor(tag) {
  * that HAS an image, so a tile without one is the stock tile, untouched.
  */
 app.initializers.add('ernestdefoe-tag-covers-tiles', () => {
-  extend(TagsPage.prototype, 'tagTileView', function (vnode, tag) {
+  extend(TagsPage.prototype, 'tagTileView', function (vnode: any, tag: any) {
     if (!vnode || !Array.isArray(vnode.children)) return;
 
     const { slug, cover, logo } = imageryFor(tag);
@@ -207,13 +195,15 @@ app.initializers.add('ernestdefoe-tag-covers-tiles', () => {
       // The info link's first child is the heading: [icon | false, name].
       // A logo stands in for the icon — a crest beside a Font Awesome glyph
       // is two marks for one thing.
-      const info = vnode.children.find((c) => c && c.attrs && /\bTagTile-info\b/.test(c.attrs.className || ''));
+      const info = vnode.children.find((c: any) => c && c.attrs && /\bTagTile-info\b/.test(c.attrs.className || ''));
       const heading =
-        info && Array.isArray(info.children) ? info.children.find((c) => c && c.attrs && /\bTagTile-heading\b/.test(c.attrs.className || '')) : null;
+        info && Array.isArray(info.children)
+          ? info.children.find((c: any) => c && c.attrs && /\bTagTile-heading\b/.test(c.attrs.className || ''))
+          : null;
 
       if (heading && Array.isArray(heading.children)) {
         const img = m('img.TagTile-logo', { src: logo, alt: '', loading: 'lazy', 'data-tag-slug': slug });
-        const iconAt = heading.children.findIndex((c) => c && c.attrs && /\bicon\b/.test(c.attrs.className || ''));
+        const iconAt = heading.children.findIndex((c: any) => c && c.attrs && /\bicon\b/.test(c.attrs.className || ''));
 
         if (iconAt >= 0) heading.children[iconAt] = img;
         else heading.children.unshift(img);

@@ -18,6 +18,9 @@ return [
 
     new Extend\Locales(__DIR__.'/locale'),
 
+    // Plain routes, not an ApiResource: these take a multipart file upload
+    // and answer with one URL. There is no JSON:API document to create or
+    // update, and the image hangs off the tag's own resource as a field.
     (new Extend\Routes('api'))
         ->post('/tag-covers/{id}', 'tag-covers.upload', UploadCoverController::class)
         ->delete('/tag-covers/{id}', 'tag-covers.delete', DeleteCoverController::class)

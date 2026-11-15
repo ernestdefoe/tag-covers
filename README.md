@@ -52,7 +52,8 @@ not depend on any particular theme.
 
 - **Every tag, not just the ones loaded.** The images for all tags are sent with the page in one small query, so a team tag's crest appears even on a page that never loaded that tag.
 - **Files live on the `flarum-assets` disk** beside the logo and favicon, named `tag-cover-<tagId>-<random>.webp` and `tag-logo-<tagId>-<random>.webp`.
-- **No orphaned files.** Removing or replacing an image sweeps every file of that kind for the tag by filename, rather than trusting the path in the database, so an upload that failed halfway cannot leave a file nothing points at.
+- **No orphaned files.** A new image's row is saved before the file it replaces is deleted, and a failed save removes the new file again, so no file is left that no tag points at.
+- **Two small upload endpoints**, `POST`/`DELETE /api/tag-covers/{id}` and `/api/tag-logos/{id}`, admin only. They take a multipart file rather than a JSON:API document, so they are plain routes; the URLs reach the frontend as `coverUrl` and `logoUrl` on the tag resource.
 - **Requires** Flarum 2, `flarum/tags` and PHP 8.3.
 
 ## Installation

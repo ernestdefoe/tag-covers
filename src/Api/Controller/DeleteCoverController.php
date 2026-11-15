@@ -26,7 +26,7 @@ class DeleteCoverController implements RequestHandlerInterface
         $kind = $logo ? 'logo' : 'cover';
         $column = $logo ? 'logo_path' : 'path';
 
-        $tagId = (int) Arr::get($request->getQueryParams(), 'id', 0);
+        $tagId = (int) Arr::get($request->getAttribute('routeParameters', []), 'id', 0);
 
         // Delete the file first: a row pointing at a file that is gone renders
         // a broken image, which is worse than no image at all.
