@@ -74,25 +74,92 @@ app.initializers.add('ernestdefoe-tag-covers', () => {
   });
 });
 
-/** POST one image for a tag that exists, and keep the store in step. */
-function upload(tag: any, kind: Kind, file: File): Promise<string | null> {
-  const attr = kind === 'logo' ? 'logoUrl' : 'coverUrl';
-  const route = kind === 'logo' ? 'tag-logos' : 'tag-covers';
-  const data = new FormData();
-  data.append(kind, file);
+const attrOf = (kind: Kind) => (kind === 'logo' ? 'logoUrl' : 'coverUrl');
+const routeOf = (kind: Kind) => (kind === 'logo' ? 'tag-logos' : 'tag-covers');
+
+/**
+ * Send one image (POST) or remove it (DELETE) for a tag that exists, and keep
+ * the store in step so other views pick the change up without a reload.
+ */
+function request(tag: any, kind: Kind, method: 'POST' | 'DELETE', file?: File): Promise<string | null> {
+  let body: FormData | null = null;
+
+  if (file) {
+    body = new FormData();
+    body.append(kind, file);
+  }
 
   return app
     .request<UrlResponse>({
-      method: 'POST',
-      url: `${app.forum.attribute('apiUrl')}/${route}/${tag.id()}`,
-      body: data,
+      method,
+      url: `${app.forum.attribute('apiUrl')}/${routeOf(kind)}/${tag.id()}`,
+      body,
       serialize: (raw: any) => raw, // FormData must not be JSON-encoded
     })
     .then((res) => {
-      const url = (res && res[attr]) || null;
-      tag.pushAttributes({ [attr]: url });
+      const url = (res && res[attrOf(kind)]) || null;
+      tag.pushAttributes({ [attrOf(kind)]: url });
       return url;
     });
+}
+
+const upload = (tag: any, kind: Kind, file: File) => request(tag, kind, 'POST', file);
+
+/**
+ * Per-kind state on the modal, so uploading a logo does not put the cover
+ * field into a spinner and vice versa.
+ */
+function stateFor(modal: any, tag: any, kind: Kind): ImageState {
+  modal.tagImages ??= {};
+
+  return (modal.tagImages[kind] ??= { url: tag.attribute(attrOf(kind)) || null, busy: false, error: null });
+}
+
+/** Run one request with the field showing it busy, and its failure in place. */
+function run(s: ImageState, work: () => Promise<string | null>) {
+  s.busy = true;
+  s.error = null;
+  m.redraw();
+
+  return work()
+    .then((url) => {
+      s.url = url;
+    })
+    .catch(() => {
+      s.error = t('failed');
+    })
+    .then(() => {
+      s.busy = false;
+      m.redraw();
+    });
+}
+
+function pick(s: ImageState, tag: any, kind: Kind, e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+
+  if (!tag.exists) {
+    // Held until the tag is saved — see the onsubmit override.
+    if (s.url && s.pending) URL.revokeObjectURL(s.url);
+    s.pending = file;
+    s.url = URL.createObjectURL(file);
+    return;
+  }
+
+  run(s, () => request(tag, kind, 'POST', file));
+}
+
+function remove(s: ImageState, tag: any, kind: Kind) {
+  if (s.pending) {
+    if (s.url) URL.revokeObjectURL(s.url);
+    s.pending = null;
+    s.url = null;
+    return;
+  }
+
+  run(s, () => request(tag, kind, 'DELETE'));
 }
 
 /**
@@ -103,64 +170,7 @@ function upload(tag: any, kind: Kind, file: File): Promise<string | null> {
  * field is a second place for the busy/error handling to drift.
  */
 function imageField(modal: any, tag: any, kind: Kind) {
-  const attr = kind === 'logo' ? 'logoUrl' : 'coverUrl';
-  const route = kind === 'logo' ? 'tag-logos' : 'tag-covers';
-
-  // Per-kind state, so uploading a logo does not put the cover field into a
-  // spinner and vice versa.
-  modal.tagImages ??= {};
-  const s: ImageState = (modal.tagImages[kind] ??= {
-    url: tag.attribute(attr) || null,
-    busy: false,
-    error: null,
-  });
-
-  const send = (method: 'POST' | 'DELETE', body: FormData | null) => {
-    s.busy = true;
-    s.error = null;
-    m.redraw();
-
-    return app
-      .request<UrlResponse>({
-        method,
-        url: `${app.forum.attribute('apiUrl')}/${route}/${tag.id()}`,
-        body,
-        serialize: (raw: any) => raw, // FormData must not be JSON-encoded
-      })
-      .then((res) => {
-        s.url = (res && res[attr]) || null;
-        // Keep the store in step so other views pick the change up without
-        // a reload.
-        tag.pushAttributes({ [attr]: s.url });
-      })
-      .catch(() => {
-        s.error = t('failed');
-      })
-      .then(() => {
-        s.busy = false;
-        m.redraw();
-      });
-  };
-
-  const onpick = (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    const file = input.files && input.files[0];
-    if (!file) return;
-
-    if (!tag.exists) {
-      // Held until the tag is saved — see the onsubmit override.
-      if (s.url && s.pending) URL.revokeObjectURL(s.url);
-      s.pending = file;
-      s.url = URL.createObjectURL(file);
-      input.value = '';
-      return;
-    }
-
-    const data = new FormData();
-    data.append(kind, file);
-    send('POST', data);
-    input.value = '';
-  };
+  const s = stateFor(modal, tag, kind);
 
   return m('.Form-group.TagCovers-field', [
     m('label', t(kind + '_label')),
@@ -175,28 +185,10 @@ function imageField(modal: any, tag: any, kind: Kind) {
           type: 'file',
           accept: 'image/png,image/jpeg,image/webp,image/gif',
           disabled: s.busy,
-          onchange: onpick,
+          onchange: (e: Event) => pick(s, tag, kind, e),
         }),
       ]),
-      s.url
-        ? m(
-            Button,
-            {
-              className: 'Button Button--danger',
-              disabled: s.busy,
-              onclick: () => {
-                if (s.pending) {
-                  if (s.url) URL.revokeObjectURL(s.url);
-                  s.pending = null;
-                  s.url = null;
-                  return;
-                }
-                send('DELETE', null);
-              },
-            },
-            t('remove')
-          )
-        : null,
+      s.url ? m(Button, { className: 'Button Button--danger', disabled: s.busy, onclick: () => remove(s, tag, kind) }, t('remove')) : null,
     ]),
 
     s.pending ? m('.helpText.TagCovers-pending', t('pending')) : null,

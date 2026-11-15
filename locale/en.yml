@@ -17,4 +17,5 @@ ernestdefoe-tag-covers:
   api:
     no_image: No image was uploaded.
     too_large: That image is larger than 8MB.
+    too_many_pixels: That image is too big to process. Keep it under 25 megapixels, for example 6000x4000.
     bad_type: That file is not a PNG, JPEG, WebP or GIF image.

@@ -3,7 +3,6 @@
 namespace Ernestdefoe\TagCovers\Api\Controller;
 
 use Ernestdefoe\TagCovers\CoverStore;
-use Ernestdefoe\TagCovers\TagCover;
 use Flarum\Http\RequestUtil;
 use Illuminate\Support\Arr;
 use Laminas\Diactoros\Response\JsonResponse;
@@ -24,28 +23,10 @@ class DeleteCoverController implements RequestHandlerInterface
 
         $logo = str_contains($request->getUri()->getPath(), '/tag-logos/');
         $kind = $logo ? 'logo' : 'cover';
-        $column = $logo ? 'logo_path' : 'path';
 
         $tagId = (int) Arr::get($request->getAttribute('routeParameters', []), 'id', 0);
 
-        // Delete the file first: a row pointing at a file that is gone renders
-        // a broken image, which is worse than no image at all.
-        $this->covers->forget($tagId, $kind);
-
-        $row = TagCover::query()->find($tagId);
-
-        if ($row) {
-            $row->{$column} = null;
-
-            // 🚨 Clear the ROW once neither image is left. Leaving an empty row
-            // behind means the field resource carries it, and a later "has this
-            // tag got a cover?" written against row existence answers yes.
-            if ($row->path === null && $row->logo_path === null) {
-                $row->delete();
-            } else {
-                $row->save();
-            }
-        }
+        $this->covers->remove($tagId, $kind);
 
         return new JsonResponse([($logo ? 'logoUrl' : 'coverUrl') => null]);
     }

@@ -40,7 +40,6 @@ class TagCoversTest extends TestCase
 
         $image = imagecreatetruecolor(4, 4);
         imagepng($image, $path);
-        imagedestroy($image);
 
         return [$field => new UploadedFile($path, filesize($path), UPLOAD_ERR_OK, 'cover.png', 'image/png')];
     }
@@ -274,5 +273,21 @@ class TagCoversTest extends TestCase
 
         $this->assertSame(200, $status);
         $this->assertStringContainsString('tag-cover-1-', $body['coverUrl']);
+    }
+
+    #[Test]
+    public function an_image_declaring_too_many_pixels_is_refused_before_it_is_decoded()
+    {
+        // A few bytes of PNG whose header claims 6000x6000 (36 megapixels).
+        // Decoding it would allocate ~144MB; the header alone is read.
+        $chunk = fn (string $type, string $data) => pack('N', strlen($data)).$type.$data.pack('N', crc32($type.$data));
+        $png = "\x89PNG\r\n\x1a\n".$chunk('IHDR', pack('NNCCCCC', 6000, 6000, 8, 2, 0, 0, 0)).$chunk('IDAT', '').$chunk('IEND', '');
+
+        $stream = (new StreamFactory())->createStream($png);
+        [$status, $body] = $this->upload('covers', 1, 1, ['cover' => new UploadedFile($stream, strlen($png), UPLOAD_ERR_OK, 'cover.png', 'image/png')]);
+
+        $this->assertSame(422, $status);
+        $this->assertStringContainsString('too_many_pixels', json_encode($body));
+        $this->assertSame(0, TagCover::query()->count());
     }
 }

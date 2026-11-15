@@ -28,6 +28,9 @@ class UploadCoverController implements RequestHandlerInterface
 
     public const ALLOWED = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
+    /** Decoding costs ~4 bytes a pixel, so this caps one decode near 100MB. */
+    public const MAX_PIXELS = 25_000_000;
+
     public function __construct(
         protected CoverStore $covers,
         protected TranslatorInterface $translator,
@@ -69,6 +72,14 @@ class UploadCoverController implements RequestHandlerInterface
 
         if (! in_array($type, self::ALLOWED, true)) {
             throw new ValidationException([$field => $this->translator->trans('ernestdefoe-tag-covers.api.bad_type')]);
+        }
+
+        // 🚨 Read the dimensions from the header before decoding: a small file
+        // can declare a huge canvas, and decoding it would exhaust memory.
+        $size = getimagesizefromstring($bytes);
+
+        if (! $size || $size[0] * $size[1] > self::MAX_PIXELS) {
+            throw new ValidationException([$field => $this->translator->trans('ernestdefoe-tag-covers.api.too_many_pixels')]);
         }
 
         $path = $this->covers->putContents($tagId, $bytes, $kind);

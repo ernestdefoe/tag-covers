@@ -3,11 +3,12 @@
 namespace Ernestdefoe\TagCovers;
 
 use Carbon\Carbon;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Filesystem\Cloud;
 use Illuminate\Contracts\Filesystem\Factory;
 use Intervention\Image\ImageManager;
-use Psr\Http\Message\UploadedFileInterface;
 
 /**
  * Reads and writes the image files themselves.
@@ -42,6 +43,7 @@ class CoverStore
     public function __construct(
         Factory $filesystem,
         protected ImageManager $images,
+        protected Cache $cache,
     ) {
         $disk = $filesystem->disk('flarum-assets');
 
@@ -52,12 +54,6 @@ class CoverStore
         }
 
         $this->disk = $disk;
-    }
-
-    /** @return string the stored filename */
-    public function put(int $tagId, UploadedFileInterface $file, string $kind = 'cover'): string
-    {
-        return $this->putContents($tagId, (string) $file->getStream(), $kind);
     }
 
     /**
@@ -83,28 +79,75 @@ class CoverStore
             ->toWebp(self::QUALITY);
 
         $name = $this->prefix($tagId, $kind).substr(bin2hex(random_bytes(4)), 0, 8).'.webp';
-        $column = self::column($kind);
-        $old = TagCover::query()->whereKey($tagId)->value($column);
 
-        $this->disk->put($name, $encoded);
+        // 🚨 One replace per tag and kind at a time. Two uploads racing would
+        // both read the same old path, and the loser's new file would be left
+        // with no row naming it.
+        return $this->locked("tag-covers:$tagId:$kind", function () use ($tagId, $kind, $name, $encoded) {
+            $column = self::column($kind);
+            $old = TagCover::query()->whereKey($tagId)->value($column);
 
-        try {
-            TagCover::query()->updateOrCreate(['tag_id' => $tagId], [$column => $name, 'updated_at' => Carbon::now()]);
-        } catch (\Throwable $e) {
-            $this->disk->delete($name);
+            $this->disk->put($name, $encoded);
 
-            throw $e;
-        }
+            try {
+                TagCover::query()->updateOrCreate(['tag_id' => $tagId], [$column => $name, 'updated_at' => Carbon::now()]);
+            } catch (\Throwable $e) {
+                $this->disk->delete($name);
 
-        $this->deleteFile($tagId, $kind, $old);
+                throw $e;
+            }
 
-        return $name;
+            $this->deleteFile($tagId, $kind, $old);
+
+            return $name;
+        });
     }
 
-    /** Delete the file of one kind that a tag's row records. The row is the caller's to update. */
-    public function forget(int $tagId, string $kind = 'cover'): void
+    /**
+     * @template T
+     *
+     * @param callable(): T $callback
+     * @return T
+     */
+    protected function locked(string $key, callable $callback): mixed
     {
-        $this->deleteFile($tagId, $kind, TagCover::query()->whereKey($tagId)->value(self::column($kind)));
+        $store = $this->cache->getStore();
+
+        if (! $store instanceof LockProvider) {
+            return $callback();
+        }
+
+        return $store->lock($key, 30)->block(10, $callback);
+    }
+
+    /**
+     * Remove one image from a tag: its file, then its column, and the row once
+     * neither image is left.
+     *
+     * 🚨 The file goes first: a row pointing at a file that is gone renders a
+     * broken image, which is worse than no image at all. And an empty row is
+     * deleted, not kept, so "has this tag got an image?" can never be answered
+     * by row existence alone.
+     */
+    public function remove(int $tagId, string $kind = 'cover'): void
+    {
+        $this->locked("tag-covers:$tagId:$kind", function () use ($tagId, $kind) {
+            $column = self::column($kind);
+            $row = TagCover::query()->find($tagId);
+
+            if (! $row) {
+                return;
+            }
+
+            $this->deleteFile($tagId, $kind, $row->{$column});
+            $row->{$column} = null;
+
+            if ($row->path === null && $row->logo_path === null) {
+                $row->delete();
+            } else {
+                $row->save();
+            }
+        });
     }
 
     /** The tag_covers column that records each kind. */
