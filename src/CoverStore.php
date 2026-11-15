@@ -3,6 +3,8 @@
 namespace Ernestdefoe\TagCovers;
 
 use Carbon\Carbon;
+use Flarum\Foundation\ValidationException;
+use Flarum\Locale\TranslatorInterface;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Container\Container;
@@ -44,6 +46,7 @@ class CoverStore
         Factory $filesystem,
         protected ImageManager $images,
         protected Cache $cache,
+        protected TranslatorInterface $translator,
     ) {
         $disk = $filesystem->disk('flarum-assets');
 
@@ -83,7 +86,7 @@ class CoverStore
         // 🚨 One replace per tag and kind at a time. Two uploads racing would
         // both read the same old path, and the loser's new file would be left
         // with no row naming it.
-        return $this->locked("tag-covers:$tagId:$kind", function () use ($tagId, $kind, $name, $encoded) {
+        return $this->locked($tagId, $kind, function () use ($tagId, $kind, $name, $encoded) {
             $column = self::column($kind);
             $old = TagCover::query()->whereKey($tagId)->value($column);
 
@@ -104,12 +107,18 @@ class CoverStore
     }
 
     /**
+     * Run a change to one tag's image of one kind while nothing else changes it.
+     *
+     * 🚨 Never waits: this runs inside an admin's request, and blocking would
+     * hold a PHP worker for as long as the other change takes. A second change
+     * arriving meanwhile is refused and can simply be retried.
+     *
      * @template T
      *
      * @param callable(): T $callback
      * @return T
      */
-    protected function locked(string $key, callable $callback): mixed
+    protected function locked(int $tagId, string $kind, callable $callback): mixed
     {
         $store = $this->cache->getStore();
 
@@ -117,7 +126,17 @@ class CoverStore
             return $callback();
         }
 
-        return $store->lock($key, 30)->block(10, $callback);
+        $lock = $store->lock("tag-covers:$tagId:$kind", 30);
+
+        if (! $lock->get()) {
+            throw new ValidationException([$kind => $this->translator->trans('ernestdefoe-tag-covers.api.busy')]);
+        }
+
+        try {
+            return $callback();
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
@@ -131,7 +150,7 @@ class CoverStore
      */
     public function remove(int $tagId, string $kind = 'cover'): void
     {
-        $this->locked("tag-covers:$tagId:$kind", function () use ($tagId, $kind) {
+        $this->locked($tagId, $kind, function () use ($tagId, $kind) {
             $column = self::column($kind);
             $row = TagCover::query()->find($tagId);
 

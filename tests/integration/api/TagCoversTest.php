@@ -290,4 +290,35 @@ class TagCoversTest extends TestCase
         $this->assertStringContainsString('too_many_pixels', json_encode($body));
         $this->assertSame(0, TagCover::query()->count());
     }
+
+    #[Test]
+    public function a_change_while_another_holds_the_lock_is_refused_at_once()
+    {
+        $this->app();
+
+        $store = $this->app()->getContainer()->make(\Illuminate\Contracts\Cache\Repository::class)->getStore();
+        $this->assertInstanceOf(\Illuminate\Contracts\Cache\LockProvider::class, $store);
+
+        $lock = $store->lock('tag-covers:1:cover', 30);
+        $this->assertTrue($lock->get());
+
+        try {
+            $started = microtime(true);
+            [$status, $body] = $this->upload('covers', 1, 1);
+
+            $this->assertSame(422, $status);
+            $this->assertStringContainsString('api.busy', json_encode($body));
+            $this->assertLessThan(1.0, microtime(true) - $started, 'Refused without waiting');
+            $this->assertSame(0, TagCover::query()->count());
+
+            // The logo is a different lock: it goes through.
+            [$status] = $this->upload('logos', 1, 1);
+            $this->assertSame(200, $status);
+        } finally {
+            $lock->release();
+        }
+
+        [$status] = $this->upload('covers', 1, 1);
+        $this->assertSame(200, $status, 'Free again once the lock is released');
+    }
 }
