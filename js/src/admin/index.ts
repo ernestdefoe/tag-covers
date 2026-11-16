@@ -195,3 +195,5 @@ function imageField(modal: any, tag: any, kind: Kind) {
     s.error ? m('.TagCovers-error', s.error) : null,
   ]);
 }
+
+export { default as extend } from './extend';

@@ -169,3 +169,5 @@ app.initializers.add('ernestdefoe-tag-covers-tiles', () => {
     }
   });
 });
+
+export { default as extend } from './extend';
