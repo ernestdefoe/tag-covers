@@ -31,6 +31,9 @@ class CoverStore
 {
     public const QUALITY = 82;
 
+    /** Frontend\AddTagImagery's map of every tag's image paths. */
+    public const IMAGERY_CACHE_KEY = 'ernestdefoe-tag-covers.imagery';
+
     /** The shape of every name putContents() gives a file. */
     private const NAME = '/^tag-(cover|logo)-\d+-[0-9a-f]{8}\.webp$/D';
 
@@ -101,6 +104,7 @@ class CoverStore
             }
 
             $this->deleteFile($tagId, $kind, $old);
+            $this->cache->forget(self::IMAGERY_CACHE_KEY);
 
             return $name;
         });
@@ -166,6 +170,8 @@ class CoverStore
             } else {
                 $row->save();
             }
+
+            $this->cache->forget(self::IMAGERY_CACHE_KEY);
         });
     }
 
@@ -200,6 +206,7 @@ class CoverStore
         $disk = $container->make(Factory::class)->disk('flarum-assets');
 
         $disk->delete(preg_grep(self::NAME, $disk->files()));
+        $container->make(Cache::class)->forget(self::IMAGERY_CACHE_KEY);
     }
 
     public function url(string $path): string

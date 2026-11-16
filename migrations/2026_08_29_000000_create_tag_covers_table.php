@@ -1,7 +1,7 @@
 <?php
 
 use Ernestdefoe\TagCovers\CoverStore;
-use Illuminate\Container\Container;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 
@@ -28,7 +28,7 @@ return [
     },
     // Purging the extension takes the images' files with their rows.
     'down' => function (Builder $schema) {
-        CoverStore::purge(Container::getInstance());
+        CoverStore::purge(resolve(Container::class));
         $schema->dropIfExists('tag_covers');
     },
 ];

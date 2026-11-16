@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\TagCovers\Tests\integration\api;
 
+use Ernestdefoe\TagCovers\CoverStore;
 use Ernestdefoe\TagCovers\TagCover;
 use Flarum\Tags\Tag;
 use Flarum\Testing\integration\RetrievesAuthorizedUsers;
@@ -9,6 +10,7 @@ use Flarum\Testing\integration\TestCase;
 use Flarum\User\User;
 use Laminas\Diactoros\StreamFactory;
 use Laminas\Diactoros\UploadedFile;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Filesystem\Factory;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ServerRequestInterface;
@@ -31,6 +33,14 @@ class TagCoversTest extends TestCase
                 ['id' => 3, 'name' => 'Staff', 'slug' => 'staff-only-room', 'position' => 2, 'parent_id' => null, 'is_restricted' => true],
             ],
         ]);
+    }
+
+    /** The page map is cached outside the test's transaction: never let it reach the next test. */
+    protected function tearDown(): void
+    {
+        $this->app?->getContainer()->make(Cache::class)->forget(CoverStore::IMAGERY_CACHE_KEY);
+
+        parent::tearDown();
     }
 
     /** A real PNG: the store decodes and re-encodes the upload. */
@@ -227,6 +237,45 @@ class TagCoversTest extends TestCase
         $admin = $this->pageImagery(1);
         $this->assertEqualsCanonicalizing(['open', 'staff-only-room'], array_keys($admin));
         $this->assertStringContainsString('tag-logo-3-', $admin['staff-only-room']['logo']);
+    }
+
+    #[Test]
+    public function every_cover_change_refreshes_the_cached_page_map()
+    {
+        $this->config('debug', false);
+        $cache = $this->app()->getContainer()->make(Cache::class);
+
+        $this->assertNull($this->pageImagery(1));
+        $this->assertSame([], $cache->get(CoverStore::IMAGERY_CACHE_KEY), 'An empty board is cached too');
+
+        $this->upload('covers', 1, 1);
+        $this->assertNull($cache->get(CoverStore::IMAGERY_CACHE_KEY), 'An upload forgets the map');
+        $first = $this->pageImagery(1)['open']['cover'];
+
+        $this->upload('covers', 1, 1);
+        $this->assertNotSame($first, $this->pageImagery(1)['open']['cover'], 'A replace shows the new file');
+
+        $this->assertSame(200, $this->remove('covers', 1, 1));
+        $this->assertNull($this->pageImagery(1), 'A removal takes the tag out of the map');
+    }
+
+    #[Test]
+    public function a_page_with_the_map_cached_reads_no_imagery_table_and_joins_nothing()
+    {
+        $this->config('debug', false);
+        $this->upload('covers', 1, 1);
+        $this->pageImagery(1);
+
+        $db = $this->database();
+        $db->flushQueryLog();
+        $db->enableQueryLog();
+        $imagery = $this->pageImagery(1);
+        $queries = array_column($db->getQueryLog(), 'query');
+        $db->disableQueryLog();
+
+        $this->assertArrayHasKey('open', $imagery);
+        $this->assertEmpty(array_filter($queries, fn ($q) => str_contains($q, 'tag_covers')), 'Served from the cache');
+        $this->assertEmpty(array_filter($queries, fn ($q) => stripos($q, ' join ') !== false && str_contains($q, 'tags')), 'No JOIN onto the tags');
     }
 
     #[Test]

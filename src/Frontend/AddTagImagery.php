@@ -3,9 +3,11 @@
 namespace Ernestdefoe\TagCovers\Frontend;
 
 use Ernestdefoe\TagCovers\CoverStore;
+use Ernestdefoe\TagCovers\TagCover;
 use Flarum\Frontend\Document;
 use Flarum\Http\RequestUtil;
 use Flarum\Tags\Tag;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -24,46 +26,45 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 class AddTagImagery
 {
+    /** A backstop only: CoverStore forgets the map on every change it makes. */
+    public const TTL = 600;
+
     public function __construct(
-        protected CoverStore $store
+        protected CoverStore $store,
+        protected Cache $cache,
     ) {
     }
 
     public function __invoke(Document $document, ServerRequestInterface $request): void
     {
+        $imagery = $this->imagery();
+
+        // Most pages of most forums end here, with no query at all.
+        if ($imagery === []) {
+            return;
+        }
+
         /*
-         * 🚨 One joined query, not hydrated Tag models. This runs on EVERY page render,
-         * so it must not be the reason a forum with a lot of tags gets slower —
-         * and the only two things a consumer needs are the slug it keys its
-         * rule on and the URL.
+         * 🚨 The cache holds every tag's imagery, whoever asked first, so who may
+         * see what is decided HERE, per request, never inside the cached value:
+         * a restricted tag's slug and imagery are not for a guest's page source.
+         * The slug is read live with it, so a renamed tag needs no invalidation.
          */
-        // Only tags the viewer can see: a restricted tag's slug and imagery
-        // are not for a guest's page source.
-        $rows = Tag::query()
+        $slugs = Tag::query()
             ->whereVisibleTo(RequestUtil::getActor($request))
-            ->join('tag_covers', 'tags.id', '=', 'tag_covers.tag_id')
-            ->where(function ($q) {
-                $q->whereNotNull('tag_covers.path')->orWhereNotNull('tag_covers.logo_path');
-            })
-            ->toBase()
-            ->get(['tags.slug', 'tag_covers.path', 'tag_covers.logo_path']);
+            ->whereIn('id', array_keys($imagery))
+            ->pluck('slug', 'id');
 
         $map = [];
 
-        foreach ($rows as $row) {
+        foreach ($slugs as $id => $slug) {
             $entry = [];
 
-            if ($row->path) {
-                $entry['cover'] = $this->store->url($row->path);
+            foreach ($imagery[$id] as $kind => $path) {
+                $entry[$kind] = $this->store->url($path);
             }
 
-            if ($row->logo_path) {
-                $entry['logo'] = $this->store->url($row->logo_path);
-            }
-
-            if ($entry !== []) {
-                $map[(string) $row->slug] = $entry;
-            }
+            $map[(string) $slug] = $entry;
         }
 
         // Absent rather than empty, so a consumer can tell "this extension
@@ -71,5 +72,30 @@ class AddTagImagery
         if ($map !== []) {
             $document->payload['tagCoverImagery'] = $map;
         }
+    }
+
+    /**
+     * tag id => ['cover' => path, 'logo' => path], for every tag with an image.
+     *
+     * 🚨 One small table, read once per TTL or change rather than joined to
+     * the tags on every page render.
+     *
+     * @return array<int, array<string, string>>
+     */
+    protected function imagery(): array
+    {
+        return $this->cache->remember(CoverStore::IMAGERY_CACHE_KEY, self::TTL, function () {
+            $imagery = [];
+
+            foreach (TagCover::query()->toBase()->get(['tag_id', 'path', 'logo_path']) as $row) {
+                $entry = array_filter(['cover' => $row->path, 'logo' => $row->logo_path]);
+
+                if ($entry !== []) {
+                    $imagery[(int) $row->tag_id] = $entry;
+                }
+            }
+
+            return $imagery;
+        });
     }
 }
